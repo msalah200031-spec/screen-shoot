@@ -24,38 +24,34 @@ const ULTRA_CONFIG = {
 };
 
 // ============================================
-// 📸 تصوير رينجات الشيت (محسّن للأداء)
+// 📸 تصوير رينجات الشيت
 // ============================================
 async function captureSheetRanges() {
-  // إعدادات خفيفة لتوفير الذاكرة
+  console.log("🚀 Launching browser...");
+  
   const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: '/usr/bin/google-chrome-stable',
+    headless: "new",
+    protocolTimeout: 120000,
     args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-      '--disable-extensions',
-      '--disable-background-networking',
-      '--disable-default-apps',
-      '--disable-sync',
-      '--disable-translate',
-      '--hide-scrollbars',
-      '--metrics-recording-only',
-      '--mute-audio',
-      '--no-default-browser-check',
-      '--no-pings',
-      '--password-store=basic',
-      '--use-mock-keychain'
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-zygote",
+      "--single-process"
     ]
   });
 
+  console.log("✅ Browser launched");
+
+  browser.on("disconnected", () => {
+    console.log("❌ Browser disconnected");
+  });
+
+  console.log("📄 Creating page...");
   const page = await browser.newPage();
-  
-  // تقليل حجم الصفحة لتوفير الذاكرة
+  console.log("✅ Page created");
+
   await page.setViewport({ 
     width: 1280, 
     height: 800, 
@@ -113,7 +109,7 @@ async function captureSheetRanges() {
       }
     }
 
-    // حساب الرينج باستخدام طريقة أكثر استقراراً
+    // حساب الرينج
     const clip = await page.evaluate((rangeStr) => {
       try {
         const table = document.querySelector('.waffle');
