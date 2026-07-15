@@ -1,0 +1,14 @@
+{
+  "name": "sheet-to-whatsapp",
+  "version": "1.0.0",
+  "description": "Capture Google Sheets ranges and send to WhatsApp",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0",
+    "sharp": "^0.32.0",
+    "axios": "^1.5.0"
+  }
+}
