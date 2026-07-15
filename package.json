@@ -4,7 +4,11 @@
   "description": "Capture Google Sheets ranges and send to WhatsApp",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "postinstall": "npx puppeteer browsers install chrome"
+  },
+  "engines": {
+    "node": ">=20.0.0 <22.0.0"
   },
   "dependencies": {
     "puppeteer": "^21.0.0",
