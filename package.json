@@ -1,13 +1,14 @@
 {
   "name": "sheet-to-whatsapp",
   "version": "1.0.0",
-  "description": "Capture Google Sheets and send to WhatsApp",
+  "description": "Capture Google Sheets and send to WhatsApp via API",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "sharp": "^0.32.0",
-    "axios": "^1.5.0"
+    "axios": "^1.5.0",
+    "express": "^4.18.2"
   }
 }
