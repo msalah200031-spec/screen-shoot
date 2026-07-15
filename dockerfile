@@ -1,5 +1,5 @@
 # Use the official Puppeteer image with Chrome pre-installed
-FROM ghcr.io/puppeteer/puppeteer:21.0.0
+FROM ghcr.io/puppeteer/puppeteer:23.0.0
 
 # Set working directory
 WORKDIR /usr/src/app
@@ -8,8 +8,7 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install --only=production
-
+RUN npm ci --omit=dev
 
 # Copy application code
 COPY index.js .
