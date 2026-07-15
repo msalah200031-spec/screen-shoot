@@ -10,7 +10,7 @@ const path = require('path');
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1PJ9a_ca2XBmrus8n_xFhtHcIfeJDDHAumJefdTxgSiU/edit?gid=1237273820#gid=1237273820';
 
 // ============================================
-// 📊 الرينجات المطلوبة (تاب واحد بس)
+// 📊 الرينجات المطلوبة
 // ============================================
 const RANGES = [
   { name: 'Total', sheet: 'Total', range: 'A1:H13' },
@@ -33,25 +33,18 @@ const ULTRA_CONFIG = {
 // ============================================
 async function main() {
   console.log('🚀 بدء تشغيل السكربت...');
-  console.log('📊 عدد الرينجات المطلوب تصويرها:', RANGES.length);
+  console.log('📊 عدد الرينجات:', RANGES.length);
   
   try {
-    // 1️⃣ التقاط الصور من الشيت
-    console.log('📸 جاري تصوير الشيت...');
     const screenshots = await captureSheetRanges();
     console.log('✅ تم التقاط', screenshots.length, 'صورة');
     
-    // 2️⃣ دمج الصور في صورة واحدة
-    console.log('🖼️ جاري دمج الصور...');
     const mergedImage = await mergeImages(screenshots);
-    console.log('✅ تم الدمج بنجاح');
+    console.log('✅ تم دمج الصور');
     
-    // 3️⃣ إرسال الصورة للواتساب
-    console.log('📤 جاري إرسال الصورة للجروب...');
     await sendToWhatsApp(mergedImage);
     console.log('✅ تم الإرسال بنجاح 🎉');
     
-    // 4️⃣ تنظيف الملفات المؤقتة
     cleanupFiles(screenshots, mergedImage);
     
   } catch (error) {
@@ -61,12 +54,23 @@ async function main() {
 }
 
 // ============================================
-// 📸 تصوير رينجات الشيت
+// 📸 تصوير رينجات الشيت (باستخدام Docker Chrome)
 // ============================================
 async function captureSheetRanges() {
+  // المسار الصحيح للكروم في Docker
   const browser = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    headless: true,
+    executablePath: '/usr/bin/google-chrome-stable', // المسار الصحيح في الصورة
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process',
+      '--disable-extensions'
+    ]
   });
   
   const page = await browser.newPage();
@@ -86,7 +90,6 @@ async function captureSheetRanges() {
   await page.waitForSelector('.waffle', { timeout: 30000 });
   console.log('✅ تم تحميل الشيت');
   
-  // تكبير لعرض أوضح
   await page.evaluate(() => {
     document.body.style.zoom = '1.2';
   });
@@ -99,7 +102,6 @@ async function captureSheetRanges() {
     const { name, sheet, range } = RANGES[i];
     console.log(`  📸 تصوير ${i + 1}/${RANGES.length}: ${name} (${range})`);
     
-    // تغيير التاب إذا لزم الأمر
     if (sheet !== currentSheet) {
       console.log(`  📑 التبديل إلى تاب: ${sheet}`);
       await switchSheet(page, sheet);
@@ -107,7 +109,6 @@ async function captureSheetRanges() {
       await page.waitForTimeout(1500);
     }
     
-    // حساب إحداثيات الرينج
     const clip = await calculateRangeClip(page, range);
     
     if (!clip) {
@@ -115,13 +116,12 @@ async function captureSheetRanges() {
       continue;
     }
     
-    // التقاط الصورة
     const screenshot = await page.screenshot({
       clip: clip,
       type: 'png'
     });
     
-    const tempPath = path.join('/tmp', `temp_${name}.png`);
+    const tempPath = path.join('/tmp/screenshots', `temp_${name}.png`);
     fs.writeFileSync(tempPath, screenshot);
     screenshots.push(tempPath);
     
@@ -139,26 +139,11 @@ async function captureSheetRanges() {
 async function switchSheet(page, sheetName) {
   try {
     await page.evaluate((name) => {
-      // البحث عن علامات التبويب
       const tabs = document.querySelectorAll('.docs-sheet-tab');
       for (const tab of tabs) {
         if (tab.textContent.trim() === name) {
           tab.click();
           return true;
-        }
-      }
-      
-      // طريقة بديلة باستخدام القائمة المنسدلة
-      const dropdown = document.querySelector('.docs-sheet-tab-menu-button');
-      if (dropdown) {
-        dropdown.click();
-        // البحث في القائمة
-        const items = document.querySelectorAll('.goog-menuitem');
-        for (const item of items) {
-          if (item.textContent.trim() === name) {
-            item.click();
-            return true;
-          }
         }
       }
       return false;
@@ -169,7 +154,7 @@ async function switchSheet(page, sheetName) {
 }
 
 // ============================================
-// 📐 حساب إحداثيات الرينج (محسّن)
+// 📐 حساب إحداثيات الرينج
 // ============================================
 async function calculateRangeClip(page, range) {
   return await page.evaluate((rangeStr) => {
@@ -187,12 +172,10 @@ async function calculateRangeClip(page, range) {
       let maxX = 0, maxY = 0;
       let found = false;
       
-      // جمع كل الخلايا في النطاق
       for (let i = startRow - 1; i < Math.min(endRow, rows.length); i++) {
         const cells = rows[i].querySelectorAll('td, th');
         if (cells.length === 0) continue;
         
-        // نأخذ أول وآخر خلية في الصف
         const firstCell = cells[0];
         const lastCell = cells[cells.length - 1];
         
@@ -211,7 +194,6 @@ async function calculateRangeClip(page, range) {
       
       if (!found) return null;
       
-      // إضافة هامش للصورة
       const padding = 20;
       return {
         x: Math.max(0, minX - padding),
@@ -248,7 +230,7 @@ async function mergeImages(imagePaths) {
       compositeImages.push({
         input: img.buffer,
         top: yOffset,
-        left: Math.floor((maxWidth - img.metadata.width) / 2), // توسيط
+        left: Math.floor((maxWidth - img.metadata.width) / 2),
         width: img.metadata.width,
         height: img.metadata.height
       });
@@ -267,7 +249,7 @@ async function mergeImages(imagePaths) {
     .png()
     .toBuffer();
     
-    const outputPath = path.join('/tmp', 'merged_report.png');
+    const outputPath = path.join('/tmp/screenshots', 'merged_report.png');
     fs.writeFileSync(outputPath, mergedBuffer);
     
     return outputPath;
@@ -329,11 +311,6 @@ function cleanupFiles(tempFiles, mergedFile) {
         fs.unlinkSync(file);
         console.log(`  🗑️ حذف: ${path.basename(file)}`);
       }
-    }
-    
-    if (fs.existsSync(mergedFile)) {
-      // نخلي الملف عشان نستخدمه تاني لو احتجنا
-      console.log(`  📁 الملف النهائي: ${mergedFile}`);
     }
     
     console.log('✅ تم التنظيف بنجاح');
