@@ -24,9 +24,10 @@ const ULTRA_CONFIG = {
 };
 
 // ============================================
-// 📸 تصوير رينجات الشيت
+// 📸 تصوير رينجات الشيت (محسّن للأداء)
 // ============================================
 async function captureSheetRanges() {
+  // إعدادات خفيفة لتوفير الذاكرة
   const browser = await puppeteer.launch({
     headless: true,
     executablePath: '/usr/bin/google-chrome-stable',
@@ -37,18 +38,40 @@ async function captureSheetRanges() {
       '--disable-gpu',
       '--no-first-run',
       '--no-zygote',
-      '--single-process',
-      '--disable-extensions'
+      '--disable-extensions',
+      '--disable-background-networking',
+      '--disable-default-apps',
+      '--disable-sync',
+      '--disable-translate',
+      '--hide-scrollbars',
+      '--metrics-recording-only',
+      '--mute-audio',
+      '--no-default-browser-check',
+      '--no-pings',
+      '--password-store=basic',
+      '--use-mock-keychain'
     ]
   });
 
   const page = await browser.newPage();
-  await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 2 });
+  
+  // تقليل حجم الصفحة لتوفير الذاكرة
+  await page.setViewport({ 
+    width: 1280, 
+    height: 800, 
+    deviceScaleFactor: 1.5 
+  });
 
   console.log('🌐 جاري فتح الشيت...');
+  
   try {
-    await page.goto(SHEET_URL, { waitUntil: 'networkidle2', timeout: 60000 });
-    await page.waitForSelector('.waffle', { timeout: 30000 });
+    await page.goto(SHEET_URL, { 
+      waitUntil: 'domcontentloaded', 
+      timeout: 45000 
+    });
+    
+    // انتظار ظهور الجدول
+    await page.waitForSelector('.waffle', { timeout: 20000 });
     console.log('✅ تم تحميل الشيت');
   } catch (error) {
     console.error('❌ فشل في تحميل الشيت:', error.message);
@@ -56,28 +79,86 @@ async function captureSheetRanges() {
     return [];
   }
 
-  // تكبير لعرض أوضح
+  // تكبير بسيط
   await page.evaluate(() => {
-    document.body.style.zoom = '1.2';
+    document.body.style.zoom = '1.1';
   });
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(1500);
 
   const screenshots = [];
   let currentSheet = '';
 
   for (let i = 0; i < RANGES.length; i++) {
     const { name, sheet, range } = RANGES[i];
-    console.log(`  📸 تصوير ${i + 1}/${RANGES.length}: ${name} (${range})`);
+    console.log(`  📸 تصوير ${i + 1}/${RANGES.length}: ${name}`);
 
     if (sheet !== currentSheet) {
       console.log(`  📑 التبديل إلى تاب: ${sheet}`);
-      await switchSheet(page, sheet);
-      currentSheet = sheet;
-      await page.waitForTimeout(1500);
+      try {
+        await page.evaluate((name) => {
+          const tabs = document.querySelectorAll('.docs-sheet-tab');
+          for (const tab of tabs) {
+            if (tab.textContent.trim() === name) {
+              tab.click();
+              return true;
+            }
+          }
+          return false;
+        }, sheet);
+        currentSheet = sheet;
+        await page.waitForTimeout(1000);
+      } catch (error) {
+        console.log(`  ⚠️ مشكلة في التبديل إلى ${sheet}`);
+        continue;
+      }
     }
 
-    const clip = await calculateRangeClip(page, range);
-    console.log(`  📏 نتيجة حساب الرينج ${range}:`, clip);
+    // حساب الرينج باستخدام طريقة أكثر استقراراً
+    const clip = await page.evaluate((rangeStr) => {
+      try {
+        const table = document.querySelector('.waffle');
+        if (!table) return null;
+
+        const [start, end] = rangeStr.split(':');
+        const startRow = parseInt(start.match(/\d+/)[0]);
+        const endRow = parseInt(end.match(/\d+/)[0]);
+        const rows = table.querySelectorAll('tr');
+
+        let minX = Infinity, minY = Infinity;
+        let maxX = 0, maxY = 0;
+        let found = false;
+
+        for (let i = startRow - 1; i < Math.min(endRow, rows.length); i++) {
+          const cells = rows[i].querySelectorAll('td, th');
+          if (cells.length === 0) continue;
+
+          const firstCell = cells[0];
+          const lastCell = cells[cells.length - 1];
+          const rect1 = firstCell.getBoundingClientRect();
+          const rect2 = lastCell.getBoundingClientRect();
+
+          if (i === startRow - 1) {
+            minX = rect1.x;
+            minY = rect1.y;
+          }
+          maxX = Math.max(maxX, rect2.x + rect2.width);
+          maxY = Math.max(maxY, rect2.y + rect2.height);
+          found = true;
+        }
+
+        if (!found) return null;
+
+        const padding = 15;
+        return {
+          x: Math.max(0, minX - padding),
+          y: Math.max(0, minY - padding),
+          width: (maxX - minX) + (padding * 2),
+          height: (maxY - minY) + (padding * 2)
+        };
+      } catch (e) {
+        return null;
+      }
+    }, range);
 
     if (!clip) {
       console.log(`  ⚠️ تعذر حساب الرينج ${name}، تخطي...`);
@@ -87,106 +168,21 @@ async function captureSheetRanges() {
     try {
       const screenshot = await page.screenshot({
         clip: clip,
-        type: 'png'
+        type: 'png',
+        quality: 80
       });
 
-      const tempPath = path.join('/tmp/screenshots', `temp_${name}.png`);
+      const tempPath = path.join('/tmp', `temp_${name}.png`);
       fs.writeFileSync(tempPath, screenshot);
       screenshots.push(tempPath);
       console.log(`  ✅ تم حفظ ${name}`);
     } catch (error) {
       console.error(`  ❌ فشل في تصوير ${name}:`, error.message);
     }
-
-    await page.waitForTimeout(500);
   }
 
   await browser.close();
   return screenshots;
-}
-
-// ============================================
-// 📑 التبديل بين التابات
-// ============================================
-async function switchSheet(page, sheetName) {
-  try {
-    await page.evaluate((name) => {
-      const tabs = document.querySelectorAll('.docs-sheet-tab');
-      for (const tab of tabs) {
-        if (tab.textContent.trim() === name) {
-          tab.click();
-          return true;
-        }
-      }
-      return false;
-    }, sheetName);
-  } catch (error) {
-    console.log(`  ⚠️ مشكلة في التبديل إلى ${sheetName}:`, error.message);
-  }
-}
-
-// ============================================
-// 📐 حساب إحداثيات الرينج
-// ============================================
-async function calculateRangeClip(page, range) {
-  console.log(`  🔍 محاولة حساب الرينج: ${range}`);
-  const result = await page.evaluate((rangeStr) => {
-    try {
-      const table = document.querySelector('.waffle');
-      if (!table) {
-        console.error('  ❌ لم يتم العثور على الجدول (waffle)');
-        return null;
-      }
-
-      const [start, end] = rangeStr.split(':');
-      const startRow = parseInt(start.match(/\d+/)[0]);
-      const endRow = parseInt(end.match(/\d+/)[0]);
-
-      const rows = table.querySelectorAll('tr');
-
-      let minX = Infinity, minY = Infinity;
-      let maxX = 0, maxY = 0;
-      let found = false;
-
-      for (let i = startRow - 1; i < Math.min(endRow, rows.length); i++) {
-        const cells = rows[i].querySelectorAll('td, th');
-        if (cells.length === 0) continue;
-
-        const firstCell = cells[0];
-        const lastCell = cells[cells.length - 1];
-
-        const rect1 = firstCell.getBoundingClientRect();
-        const rect2 = lastCell.getBoundingClientRect();
-
-        if (i === startRow - 1) {
-          minX = rect1.x;
-          minY = rect1.y;
-        }
-
-        maxX = Math.max(maxX, rect2.x + rect2.width);
-        maxY = Math.max(maxY, rect2.y + rect2.height);
-        found = true;
-      }
-
-      if (!found) {
-        console.error('  ❌ لم يتم العثور على خلايا في النطاق المحدد');
-        return null;
-      }
-
-      const padding = 20;
-      return {
-        x: Math.max(0, minX - padding),
-        y: Math.max(0, minY - padding),
-        width: (maxX - minX) + (padding * 2),
-        height: (maxY - minY) + (padding * 2)
-      };
-    } catch (e) {
-      console.error('  ❌ خطأ في حساب الرينج:', e.message);
-      return null;
-    }
-  }, range);
-  console.log(`  📏 نتيجة حساب الرينج ${range}:`, result);
-  return result;
 }
 
 // ============================================
@@ -199,8 +195,8 @@ async function mergeImages(imagePaths) {
     }
 
     const images = await Promise.all(
-      imagePaths.map(async (path) => {
-        const buffer = fs.readFileSync(path);
+      imagePaths.map(async (p) => {
+        const buffer = fs.readFileSync(p);
         const metadata = await sharp(buffer).metadata();
         return { buffer, metadata };
       })
@@ -216,9 +212,7 @@ async function mergeImages(imagePaths) {
       compositeImages.push({
         input: img.buffer,
         top: yOffset,
-        left: Math.floor((maxWidth - img.metadata.width) / 2),
-        width: img.metadata.width,
-        height: img.metadata.height
+        left: Math.floor((maxWidth - img.metadata.width) / 2)
       });
       yOffset += img.metadata.height;
     }
@@ -235,9 +229,8 @@ async function mergeImages(imagePaths) {
     .png()
     .toBuffer();
 
-    const outputPath = path.join('/tmp/screenshots', 'merged_report.png');
+    const outputPath = path.join('/tmp', 'merged_report.png');
     fs.writeFileSync(outputPath, mergedBuffer);
-
     return outputPath;
   } catch (error) {
     console.error('❌ خطأ في دمج الصور:', error);
@@ -277,7 +270,7 @@ async function sendToWhatsApp(imagePath) {
       }
     );
 
-    console.log('📱 رد الـ API:', response.data);
+    console.log('📱 تم الإرسال بنجاح');
     return response.data;
   } catch (error) {
     console.error('❌ خطأ في الإرسال:', error.response?.data || error.message);
@@ -290,34 +283,27 @@ async function sendToWhatsApp(imagePath) {
 // ============================================
 function cleanupFiles(tempFiles, mergedFile) {
   console.log('🧹 جاري تنظيف الملفات المؤقتة...');
-
   try {
     for (const file of tempFiles) {
-      if (fs.existsSync(file)) {
-        fs.unlinkSync(file);
-        console.log(`  🗑️ حذف: ${path.basename(file)}`);
-      }
+      if (fs.existsSync(file)) fs.unlinkSync(file);
     }
-
-    console.log('✅ تم التنظيف بنجاح');
+    console.log('✅ تم التنظيف');
   } catch (error) {
-    console.log('⚠️ تحذير: مشكلة في التنظيف', error.message);
+    console.log('⚠️ تحذير في التنظيف');
   }
 }
 
 // ============================================
-// 🚀 تشغيل السكربت الأساسي كدالة
+// 🚀 تشغيل السكربت
 // ============================================
 async function runScript() {
-  console.log('🚀 بدء تشغيل السكربت عبر الطلب...');
-  console.log('📊 عدد الرينجات:', RANGES.length);
-
+  console.log('🚀 بدء تشغيل السكربت...');
+  
   try {
     const screenshots = await captureSheetRanges();
 
-    if (!screenshots || !Array.isArray(screenshots) || screenshots.length === 0) {
-      console.error('❌ لم يتم التقاط أي صور. تأكد من أن الشيت يحتوي على البيانات المطلوبة.');
-      return { success: false, message: 'لم يتم التقاط أي صور. تحقق من الشيت.' };
+    if (!screenshots || screenshots.length === 0) {
+      return { success: false, message: 'لم يتم التقاط أي صور' };
     }
 
     console.log('✅ تم التقاط', screenshots.length, 'صورة');
@@ -326,36 +312,32 @@ async function runScript() {
     console.log('✅ تم دمج الصور');
 
     await sendToWhatsApp(mergedImage);
-    console.log('✅ تم الإرسال بنجاح 🎉');
+    console.log('✅ تم الإرسال 🎉');
 
     cleanupFiles(screenshots, mergedImage);
-    return { success: true, message: 'تم تنفيذ السكربت وإرسال التقرير بنجاح' };
+    return { success: true, message: 'تم التنفيذ بنجاح' };
   } catch (error) {
-    console.error('❌ حدث خطأ:', error.message);
-    console.error(error.stack);
+    console.error('❌ خطأ:', error.message);
     return { success: false, message: error.message };
   }
 }
 
 // ============================================
-// 🌐 إنشاء خادم الويب
+// 🌐 خادم الويب
 // ============================================
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// نقطة النهاية (Endpoint) لتشغيل السكربت
 app.get('/run-script1', async (req, res) => {
-  console.log('📥 تم استقبال طلب على /run-script1');
+  console.log('📥 طلب على /run-script1');
   const result = await runScript();
   res.status(result.success ? 200 : 500).json(result);
 });
 
-// نقطة نهاية للتحقق من أن الخادم يعمل
 app.get('/', (req, res) => {
-  res.send('🚀 الخادم يعمل بنجاح! استخدم /run-script1 لتشغيل السكربت.');
+  res.send('🚀 الخادم يعمل! استخدم /run-script1');
 });
 
-// تشغيل الخادم
 app.listen(PORT, () => {
   console.log(`✅ الخادم يعمل على المنفذ ${PORT}`);
 });
